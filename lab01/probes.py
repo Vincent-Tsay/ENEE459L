@@ -143,8 +143,17 @@ def probe_memory_total_kb(root: Path = Path("/")) -> dict[str, Any]:
     ever sees the pool. Students are expected to notice and to explain it in
     their report rather than round it up.
     """
+
+    src = "/proc/meminfo"
+    raw = read_text(root, src)
+
+    # if not able to read, return an empty dictionary by calling unknown().
+    if not raw:
+        return unknown(src, "Device memory distribution absent.")
+
+    match = re.search("^MemTotal:\s+(\d+)\s*kB", raw)
     
-    return {"value": int(m.group(1)), "source": src, "status": "ok"}
+    return {"value": int(match.group(1)), "source": src, "status": "ok"}
 
 
 def probe_root_source(root: Path = Path("/")) -> dict[str, Any]:
@@ -159,8 +168,43 @@ def probe_root_source(root: Path = Path("/")) -> dict[str, Any]:
     /proc/mounts is preferred over `findmnt` because it needs no external
     binary and no elevation, and because it is what findmnt reads anyway.
     """
+
+    src = "/proc/mounts"
+    raw = read_text(root, src)
+
+    if not raw:
+        return unknown(src, "no root mount entry found in mount table")
+
+    type = "other"
+    name = "other"
     
-    return unknown(src, "no root mount entry found in mount table")
+    for line in raw.splitlines():
+        for word in line.split():
+
+            if len(word) < 7:
+                continue
+            
+            if word[0:7] == "/dev/nv":
+                type = "nvme"
+                name = word[5:]
+                break
+            elif word[0:7] == "/dev/sd" or word[0:7] == "/dev/mm":
+                type = "ssd"
+                name = word[5:]
+                break
+
+    line = raw.splitlines()[0]
+    name = re.search("^/dev/+(\w+)\s")
+    name = name.group(1)
+
+    if name[0:1] == "sd":
+        type = "ssd"
+    elif name[0:1] == "mm":
+        type = "ssd"
+    else:
+        type = "nvme"
+    
+    return {"value": name, "kind": type, "source": src, "status": "ok"}
 
 
 def probe_nvme_present(root: Path = Path("/")) -> dict[str, Any]:
