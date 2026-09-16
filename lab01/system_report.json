@@ -1,0 +1,63 @@
+{
+    "module_model": {
+        "value": "NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super",
+        "source": "/proc/device-tree/model",
+        "status": "ok"
+    },
+    "memory_total_kb": {
+        "value": 7789952,
+        "source": "/proc/meminfo",
+        "status": "ok"
+    },
+    "root_source": {
+        "value": "nvme0n1p10",
+        "kind": "nvme",
+        "source": "/proc/mounts",
+        "status": "ok"
+    },
+    "nvme_present": {
+        "value": true,
+        "model": "CS2241 500GB SSD",
+        "source": "/proc/device-tree/model",
+        "status": "ok"
+    },
+    "pcie_link": {
+        "value": 2.5,
+        "negotiated": {
+            "raw": "LnkSta:\tSpeed 2.5GT/s (ok), Width x1 (ok)",
+            "gts": 2.5,
+            "width": 1,
+            "gen": 1
+        },
+        "capability": {
+            "raw": "LnkCap:\tPort #0, Speed 2.5GT/s, Width x1, ASPM L0s L1, Exit Latency L0s unlimited, L1 <64us",
+            "gts": 2.5,
+            "width": 1,
+            "gen": 1
+        },
+        "interpretation": "link running at its full capability, Gen1 x1",
+        "source": "/proc/device-tree/model",
+        "status": "ok"
+    },
+    "thermal_zones": {
+        "value": -1,
+        "zones": [
+            "cpu-thermal",
+            "gpu-thermal",
+            "cv0-thermal",
+            "cv1-thermal",
+            "cv2-thermal",
+            "soc0-thermal",
+            "soc1-thermal",
+            "soc2-thermal",
+            "tj-thermal"
+        ],
+        "source": "/sys/class/thermal/thermal_zone*/temp",
+        "status": "ok"
+    },
+    "power_mode": {
+        "mode_id": "25",
+        "source": "nvpmodel -q",
+        "status": "ok"
+    }
+}
