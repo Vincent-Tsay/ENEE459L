@@ -1,0 +1,4 @@
+The logic behind the thermal probe function is solid, but on certain zones, like thermal_zone2, the board says that the "Resoure temporarily unavailable".
+I think that either too many processes were occurring on the board at the same time, or that the sensor wasn't yet configured. Perhaps it has to do with
+the way Python's interal text reader is configured, which doesn't allow concatentations of Nonetype to bytes. The lspci -vv command did not work as I
+expected at first, though this was because I needed to run the file in sudo mode in order to see the required information.
