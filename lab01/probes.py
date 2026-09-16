@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 import pdb
 import json
+import os
 
 # ---------------------------------------------------------------------------
 # Small helpers. These are given to students; the exercise is the probes.
@@ -93,7 +94,7 @@ def _parse_link_line(line: str) -> dict[str, Any]:
         "gen": _GEN_BY_GTS.get(gts) if gts is not None else None,
     }
 
-def generate_interpretation_string(neg_speed, cap_speed):
+def generate_interpretation_string(neg_speed, cap_speed, negotiated, capability):
     if cap_speed > neg_speed:
         interpretation = (
             f"drive capable of Gen{capability['gen']}, link running at "
@@ -143,8 +144,17 @@ def probe_memory_total_kb(root: Path = Path("/")) -> dict[str, Any]:
     ever sees the pool. Students are expected to notice and to explain it in
     their report rather than round it up.
     """
+
+    src = "/proc/meminfo"
+    raw = read_text(root, src)
+
+    # if not able to read, return an empty dictionary by calling unknown().
+    if not raw:
+        return unknown(src, "Device memory distribution absent.")
+
+    match = re.search("^MemTotal:\s+(\d+)\s*kB", raw)
     
-    return {"value": int(m.group(1)), "source": src, "status": "ok"}
+    return {"value": int(match.group(1)), "source": src, "status": "ok"}
 
 
 def probe_root_source(root: Path = Path("/")) -> dict[str, Any]:
@@ -159,8 +169,35 @@ def probe_root_source(root: Path = Path("/")) -> dict[str, Any]:
     /proc/mounts is preferred over `findmnt` because it needs no external
     binary and no elevation, and because it is what findmnt reads anyway.
     """
+
+    src = "/proc/mounts"
+    raw = read_text(root, src)
+
+    if not raw:
+        return unknown(src, "no root mount entry found in mount table")
+
+    type = "other"
+    name = "other"
     
-    return unknown(src, "no root mount entry found in mount table")
+    for line in raw.splitlines():
+        for word in line.split():
+
+            # making sure that the first word is long enough to evaluate
+            if len(word) < 7:
+                break # only need to evaluate the first word of each line
+            
+            if word[0:7] == "/dev/nv":
+                type = "nvme"
+                name = word[5:]
+                break
+            elif word[0:7] == "/dev/sd" or word[0:7] == "/dev/mm":
+                type = "ssd"
+                name = word[5:]
+                break
+            else:
+                break # if first word length > 7 but neither nvme or ssd, just skip to next line
+    
+    return {"value": name, "kind": type, "source": src, "status": "ok"}
 
 
 def probe_nvme_present(root: Path = Path("/")) -> dict[str, Any]:
@@ -171,11 +208,19 @@ def probe_nvme_present(root: Path = Path("/")) -> dict[str, Any]:
     is what lets the troubleshooting tree in the lab guide send a student to
     the right branch.
     """
+
+    src = "/sys/block/nvme0n1/"
+    if os.path.exists(src):
+        raw = read_text(os.path.join(src, "device/model"), "")
+        match = re.search("\s+(.+)", raw)
+        model = match.group(1).strip("\x00").strip()
+    else:
+        return unknown("src", "/sys/block/nvme0n1 does not exist")
     
     return {
-        "value": ,
-        "model": ,
-        "source": ,
+        "value": os.path.exists(src),
+        "model": model,
+        "source": "/proc/device-tree/model",
         "status": "ok",
     }
 
@@ -191,13 +236,27 @@ def probe_pcie_link(root: Path = Path("/"), lspci_output: str | None = None) -> 
     `lspci_output` exists so the tests can drive this without root or hardware.
     In normal use it is None and the probe shells out.
     """
+
+    output = run(["lspci", "-vv"])
+    lnkcap = ""
+    lnksta = ""
+    
+    for line in output.split("\n"):
+        if "LnkCap:" in line:
+            lnkcap = line
+        
+        if "LnkSta:" in line:
+            lnksta = line
+
+    parsed_linkcap = _parse_link_line(lnkcap)
+    parsed_linksta = _parse_link_line(lnksta)
         
     return {
-        "value":,
-        "negotiated": ,
-        "capability": ,
-        "interpretation": ,
-        "source": ,
+        "value": parsed_linksta["gts"],
+        "negotiated": parsed_linksta,
+        "capability": parsed_linkcap,
+        "interpretation": generate_interpretation_string(parsed_linksta["gts"], parsed_linkcap["gts"], parsed_linksta, parsed_linkcap),
+        "source": "/proc/device-tree/model",
         "status": "ok",
     }
 
@@ -210,10 +269,28 @@ def probe_thermal_zones(root: Path = Path("/")) -> dict[str, Any]:
     than once, and it is a good, cheap lesson in reading units before reading
     numbers.
     """
+
+    # Need to get a list of all subdirectories under /sys/class/thermal/thermal_zone*/
+    # After getting that list (0-8), read temp file and a type file
+
+    temps = []
+    zone_type = []
+    subdirectories = []
+
+    base = Path("/sys/class/thermal")
+    for sub in base.glob("thermal_zone*"):
+        subdirectories.append(str(sub))
+    subdirectories.sort()
+
+    for sub in subdirectories:
+        temps.append(int(float(read_text(root, os.path.join(sub, "temp"))) / 1000))
+        zone_type.append(read_text(root, os.path.join(sub, "type")))
+
+    
     return {
-        "value": ,
-        "zones": ,
-        "source": ,
+        "value": max(temps),
+        "zones": zone_type,
+        "source": "/sys/class/thermal/thermal_zone*/temp",
         "status": "ok",
     }
 
@@ -226,10 +303,23 @@ def probe_power_mode(root: Path = Path("/"), nvpmodel_output: str | None = None)
     same model are usually reporting different power modes, and without this
     field there is no way to find that out after the fact.
     """
+
+    output = run(["nvpmodel", "-q"])
+    if not output:
+        return unknown("nvpmodel -q", "power mode not found")
+
+    match = re.match("NV Power Mode:\s*(.+).", output)
+    mode_name = match.group(1)
+
+    id_match = re.match("^\s*(\d+)\s*$", mode_name)
+    mode_id = id_match.group(1)
+
+    if mode_id == None:
+        unknown("nvpmodel -q", "integer mode_id not found")
+
     return {
-        "value": ,
-        "mode_id": ,
-        "source": ,
+        "mode_id": mode_id,
+        "source": "nvpmodel -q",
         "status": "ok",
     }
 
@@ -247,7 +337,7 @@ if __name__ == "__main__":
         "nvme_present": probe_nvme_present(),
         "pcie_link": probe_pcie_link(),
         "thermal_zones": probe_thermal_zones(),
-        "power_mode": probe_power_mode(),
+        "power_mode": probe_power_mode()
     }
     
     path = "system_report.json"
