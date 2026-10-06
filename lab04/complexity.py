@@ -40,13 +40,115 @@ MIN_MODELS_FOR_FIT = 3
 # two genuinely different architectures be reported as tied.
 TIE_EXACT = True
 
+def _layer_parameters(ly: Layer) -> int:
+    if ly.kind == "conv":
+
+      C_out = ly.out_shape[0]
+      C_in = ly.in_shape[0]
+      ker_dim = ly.kernel
+
+      if not ker_dim:
+        ker_dim = [1, 1]
+
+      n = C_out * (C_in // ly.groups) * ker_dim[0] * ker_dim[1]
+      if ly.bias:
+        n = n + C_out
+      
+      return n
+
+    elif ly.kind == "linear":
+      
+      f_out = ly.out_shape[0]
+      f_in = ly.in_shape[0]
+
+      n = f_out * f_in
+
+      if ly.bias:
+        n = n + f_out
+      
+      return n
+
+    elif ly.kind == "bn":
+
+      return BN_PARAMS_PER_CHANNEL * ly.out_shape[0]
+    
+    else:
+      return 0
+
+def _elements(shape:  tuple[int, ...]) -> int:
+
+    product = 1
+
+    for dim in shape:
+      product = product * dim
+    
+    return product
+
+def _last_use(graph:  Graph) -> dict[str, int]:
+
+    last = {}
+    i = 0
+    
+    names = [it.name for it in graph.layers]
+
+    for ly in graph.layers:
+
+      if ly.reads != "":
+        for t in ly.reads:
+          last[t] = i
+      elif ly.reads == "" and i == 0:
+        last["__input__"] = 0
+      elif ly.reads == "" and i > 0:
+        last[names[i - 1]] = i
+
+      i = i + 1
+    
+    for i, ly in enumerate(graph.layers):
+      last.setdefault(ly.name, i)
+
+    last[graph.layers[-1].name] = len(graph) - 1
+
+    return last
+
+
+def _peak_elements(graph: Graph, last_use:  dict[str, int]) -> int:
+    
+    live = {"__input__": _elements(graph.input_shape)}
+    peak = 0
+
+    for i, ly in enumerate(graph):
+      live[ly.name] = ly.out_elements
+      peak = max(peak, sum(live.values()))
+      for rem, index in last_use.items():
+        if index == i and rem in live:
+          del live[rem]
+
+    return peak
+
 
 # ===========================================================================
 # 1. How many numbers are stored
 # ===========================================================================
 
 def count_parameters(graph: Graph) -> dict[str, Any]:
-    pass
+
+    per_layer = {}
+    total = 0
+
+    for ly in graph.layers:
+      parameter_count = _layer_parameters(ly)
+      per_layer[ly.name] = parameter_count
+      total = total + parameter_count
+
+    return {
+      "total": total,
+      "source": graph.source,
+      "status": "computed",
+      "per_layer": per_layer,
+      "includes_bias": True,
+      "excludes_bn_buffers": True,
+      "bn_params_per_channel": BN_PARAMS_PER_CHANNEL
+    }
 
 
 # ===========================================================================
@@ -76,7 +178,48 @@ def model_size_bytes(graph: Graph) -> dict[str, Any]:
     Returns a `computed` finding whose value is bytes, with the per-dtype
     breakdown that makes the first bullet checkable.
     """
-    pass
+    per_dtype = {}
+    per_layer = {}
+    buffer_bytes = 0.0
+    total = 0
+
+    for ly in graph.layers:
+      n = _layer_parameters(ly)
+      param_bytes = n * dtype_bytes(ly.weight_dtype)
+      
+      if ly.weight_dtype not in per_dtype:
+        per_dtype[ly.weight_dtype] = param_bytes
+      else:
+        per_dtype[ly.weight_dtype] = per_dtype[ly.weight_dtype] + param_bytes
+
+      if ly.kind == "bn":
+        buffers = BN_BUFFERS_PER_CHANNEL * ly.out_shape[0]
+        size = dtype_bytes(BUFFER_DTYPE) * buffers
+        buffer_bytes = buffer_bytes + size
+
+        if BUFFER_DTYPE not in per_dtype:
+          per_dtype[BUFFER_DTYPE] = size
+        else:
+          per_dtype[BUFFER_DTYPE] = per_dtype[BUFFER_DTYPE] + size
+      
+        per_layer[ly.name] = param_bytes + size
+        total = total + per_layer[ly.name]
+
+      else:
+        per_layer[ly.name] = param_bytes
+        total = total + per_layer[ly.name]
+    
+    return {
+      "size": total,
+      "source": graph.source,
+      "status": "computed",
+      "per_layer": per_layer,
+      "per_dtype": per_dtype,
+      "buffer_bytes": buffer_bytes,
+      "container_overhead_excluded": True,
+      "note": "not the size of the file on disk; see the handout, Stage A step 3"
+    }
+        
 
 # ===========================================================================
 # 3. The memory nobody puts in the table
@@ -111,7 +254,42 @@ def count_activations(graph: Graph) -> dict[str, Any]:
     what a memory budget is denominated in, with elements and the layer where
     the peak occurs alongside.
     """
-    pass
+    last_use = _last_use(graph)
+    live = {}
+    live["__input__"] = _elements(graph.input_shape) * dtype_bytes(graph.precision)
+    peak_bytes = 0
+    peak_at = ""
+    total_elements = 0
+    total_bytes = 0
+
+    for i, ly in enumerate(graph.layers):
+      out_b = ly.out_elements * dtype_bytes(ly.act_dtype)
+      live[ly.name] = out_b
+      total_elements = total_elements + ly.out_elements
+      total_bytes = total_bytes + out_b
+      resident = sum(live.values())
+      if resident > peak_bytes:
+        peak_bytes = resident
+        peak_at = ly.name
+      for rem, index in last_use.items():
+        if index == i and rem in live:
+          del live[rem]
+
+    # the _peak_elements function returns a number that is 3072 elements larger than the sample peak_elements
+    # this is because the sample code did not add the elements that are part of the __input__ layer (of which there are 3072 elements)
+    # similar logic applies to peak_bytes discrepancy, where the difference is equal to 3072 elements * 4 bytes
+
+    return {
+      "value": peak_bytes,
+      "source": graph.source,
+      "status": "computed",
+      "peak_at": peak_at,
+      "peak_elements": _peak_elements(graph, last_use),
+      "total_elements": total_elements,
+      "total_bytes": total_bytes,
+      "includes_network_input": True,
+      "note": "peak is the resident set, not the largest single tensor"
+    }
 
 # ===========================================================================
 # 4. The factor of two that halves everybody's numbers
@@ -139,4 +317,29 @@ def to_flops(macs: dict[str, Any], convention: str = "mac_is_two_flops") -> dict
     An unrecognised convention is `unknown`, not a default. The caller asked
     for something this function does not know how to do.
     """
-    pass
+    if not is_answered(macs):
+      return unknown("to_flops()", "no valid MAC count provided")
+
+    if not convention in FLOP_CONVENTIONS:
+      return unknown(f"unallowed convention: {convention}", f"allowed conventions: {FLOP_CONVENTIONS}")
+
+    factor = FLOP_CONVENTIONS[convention]
+    total_FLOPs = 0
+    per_layer_FLOPs = {}
+
+    if isinstance(macs.get("per_layer"), dict):
+      for ly in macs["per_layer"]:
+        total_FLOPs = total_FLOPs + factor * macs["per_layer"][ly]
+        per_layer_FLOPs[ly] = factor * macs["per_layer"][ly]
+    else:
+      total_FLOPs = macs["value"] * factor
+
+    return {
+      "value": total_FLOPs,
+      "source": macs["source"],
+      "status": "computed",
+      "convention": convention,
+      "flops_per_mac": factor,
+      "per_layer": per_layer_FLOPs,
+      "note": "a count of operations contains no unit of time"
+    }
