@@ -10,6 +10,8 @@ from tensors import load_model, total_parameters
 
 import pdb
 
+import numpy as np
+
 
 def generate_all_prune_outputs(
     model_path: str | Path,
