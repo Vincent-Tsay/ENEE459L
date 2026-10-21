@@ -220,7 +220,7 @@ def bytes_stored(tensors: Sequence[Tensor], storage: str = "dense",
     to distrust.
     """
     if storage not in STORAGE_FORMS:
-        raise TensorErorr(f"Expecting one of {STORAGE_FORMS}, got {storage}")
+        raise TensorError(f"Expecting one of {STORAGE_FORMS}, got {storage}")
     elif mask_encoding != "framework" and mask_encoding != "bitmap":
         raise TensorError(f"Expecting one of (\"framework\", \"bitmap\"), got {mask_encoding}")
     
