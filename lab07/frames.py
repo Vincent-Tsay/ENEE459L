@@ -9,6 +9,7 @@ import time
 import json
 import numpy as np
 from pathlib import Path
+import math
 
 class FrameError(ValueError):
     """A shape or a format this module cannot price. `capture.py` exits 3."""
@@ -114,37 +115,152 @@ def grab_frame(pipeline: str, warmup_frames: int = 15) -> np.ndarray:
 ############################
 
 def frame_bytes(width: int, height: int, fmt: str) -> int:
-    pass
+    
+    if type(width) is not int:
+        FrameError(f"width should be an int, got {width}")
+    if width <= 0:
+        FrameError(f"width should be > 0, got {width}")
+    if type(height) is not int:
+        FrameError(f"height should be an int, got {height}")
+    if height <= 0:
+        FrameError(f"height should be > 0, got {height}")
+
+    if fmt.lower() not in FORMATS:
+        raise FrameError(f"fmt should be in {FORMATS}, got {fmt}")
+    
+    bpp = _bytes_per_pixel(fmt.lower())
+    total = width * height * bpp
+
+    # has to be whole bytes
+    return int(math.ceil(total))
 
 
 def bytes_per_second(width: int, height: int, fmt: str, fps: float) -> float:
-    pass
+    
+    if fps <= 0 :
+        raise FrameError(f"fps should be > 0, got {fps}")
+
+    one_frame_size = frame_bytes(width, height, fmt)
+
+    # Bandwidth
+    return one_frame_size * fps
 
 
 def frame_stats(pixels: Sequence[float] | Iterable[float]) -> dict[str, float]:
-    pass
+    
+    if len(pixels) == 0:
+        raise FrameError("pixels is empty, no stats to calculate")
+
+    minimum = min(pixels)
+    maximum = max(pixels)
+    N = len(pixels)
+    mean = sum(pixels)/N
+
+    var = 0
+    for value in pixels:
+        var = var + (value - mean) ** 2
+    var = var/N
+
+    sd = math.sqrt(var)
+    spread = maximum - minimum
+
+    return {
+        "min": float(minimum),
+        "max": float(maximum),
+        "mean": float(mean),
+        "spread": float(spread),
+        "sd": float(sd),
+        "samples": float(N)
+    }   
 
 
 def classify(stats: dict[str, float]) -> tuple[str, str]:
-    pass
+    
+    if not stats.get("max"):
+        raise FrameError(f"Expecting \"max\" key in stats, got {stats}")
+    
+    if not stats.get("spread"):
+        raise FrameError(f"Expecting \"spread\" key in stats, got {stats}")
 
+    if not stats.get("mean"):
+        raise FrameError(f"Expecting \"mean\" key in stats, got {stats}")
+
+    category = ""
+    rationale = ""
+
+    if stats["max"] <= BLACK_MAX:
+        maximum = stats["max"]
+        category = "black"
+        rationale = f"sensor is registering zero photon response, because max is {maximum}"
+    elif stats["spread"] < FLAT_SPREAD:
+        spread = stats["spread"]
+        category = "flat"
+        rationale = f"contrast is absent across all pixels, because spread is {spread}"
+    elif stats["mean"] < 0.10:
+        mean = stats["mean"]
+        category = "dark"
+        rationale = f"structure exists, but exposure is inefficient, because mean is {mean}"
+    else:
+        category = "scene"
+        rationale = "no outliers in stats"
+
+    return tuple([category, rationale])
 
 def conversion_bytes(width: int, height: int, src: str, dst: str) -> int:
-    pass
+    
+    if src.lower() == dst.lower():
+        return 0
+
+    read_vol = frame_bytes(width, height, src)
+    write_vol = frame_bytes(width, height, dst)
+
+    # Traffic
+    return int(read_vol + write_vol)
 
 
 def resize_bytes(src_w: int, src_h: int, dst_w: int, dst_h: int,
                  fmt: str) -> int:
-    pass
+    
+    src_size = frame_bytes(src_w, src_h, fmt)
+    dst_size = frame_bytes(dst_w, dst_h, fmt)
+
+    return int(src_size + dst_size)
 
 
 def normalise_bytes(width: int, height: int, channels: int = 3,
                     out_bytes: int = 4) -> int:
-    pass
+    
+    if width <= 0:
+        raise FrameError(f"Expecting width > 0, got {width}")
+    if height <= 0:
+        raise FrameError(f"Expecting height > 0, got {height}")
+    if channels <= 0:
+        raise FrameError(f"Expecting channels > 0, got {channels}")
+
+    P = width * height * channels
+
+    # input_bytes = P * 1
+    # output_bytes = P * out_bytes
+
+    # returning input_bytes + output_bytes = P + P * out_bytes = P * (1 + out_bytes)
+    return int(P * (1 + out_bytes))
 
 
 def summarise_formats(width: int, height: int) -> list[dict[str, Any]]:
-    pass
+    
+    format_list = []
+
+    base = frame_bytes(width, height, "rgb")
+
+    for fmt in FORMATS:
+        N = frame_bytes(width, height, fmt)
+        bpp = _bytes_per_pixel(fmt)
+        ratio = N/base
+        note = FORMAT_NOTES[fmt]
+        fmt_dict = {"format": fmt, "bytes_per_pixel": bpp, "bytes": N, "relative_to_rgb": ratio, "note": note}
+        format_list.append(fmt_dict)
+
+    return format_list
 
 
 ###############################
@@ -215,6 +331,8 @@ def main(
             },
         },
     }
+
+    #import pdb; pdb.set_trace()
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=4)
