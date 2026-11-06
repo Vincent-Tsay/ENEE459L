@@ -138,7 +138,7 @@ def detect_faces(image_path, output_path="output_detected.png", conf_threshold=0
         # box_scores is formatted to be like [corner, corner, corner, corner, confidence]
         box_scores = np.column_stack((bounds, confidence))
 
-        hard_nms_box_scores = hard_nms(box_scores, 0.25)
+        hard_nms_box_scores = hard_nms(box_scores, 0.25, 1)
         coordinates = hard_nms_box_scores[:, 0:4]
         confidence = hard_nms_box_scores[:,4]
 
@@ -212,6 +212,46 @@ def hysteresis_thresholding(img, low_thresh, high_thresh):
     STRONG = 255
     WEAK = 50
     SUPPRESSED = 0
+
+    edge_mask = np.zeros(img.shape)
+
+    mask = (img >= high_thresh)
+    edge_mask[mask] = STRONG
+
+    mask = (img < high_thresh) & (img >= low_thresh)
+    edge_mask[mask] = WEAK
+
+    # not checking the edge pixels so can always look around
+    # pixels of interest
+
+    boost_mask = np.zeros(img.shape)
+
+    for i in range(1, edge_mask.shape[0] - 1):
+        for j in range(1, edge_mask.shape[1] - 1):
+
+            if mask[i,j] == True: # location of WEAK pixel, since mask hasn't been updated
+                if edge_mask[i-1, j-1] == STRONG: # upper left
+                    boost_mask[i,j] = 1
+                elif edge_mask[i-1, j] == STRONG: # upper center
+                    boost_mask[i,j] = 1
+                elif edge_mask[i-1,j+1] == STRONG: # upper right
+                    boost_mask[i,j] = 1
+                elif edge_mask[i,j-1] == STRONG: # center left
+                    boost_mask[i,j] = 1
+                elif edge_mask[i,j+1] == STRONG: # center right
+                    boost_mask[i,j] = 1
+                elif edge_mask[i+1,j-1] == STRONG: # lower left
+                    boost_mask[i,j] = 1
+                elif edge_mask[i+1,j] == STRONG: # lower center
+                    boost_mask[i,j] = 1
+                elif edge_mask[i+1,j+1] == STRONG: # lower right
+                    boost_mask[i,j] = 1
+                else:                              # no strong pixels near weak pixel, so suppressed
+                    edge_mask[i,j] = SUPPRESSED
+
+    edge_mask[boost_mask.astype(bool)] = STRONG
+
+    return edge_mask.astype(np.uint8)
 
     
 
