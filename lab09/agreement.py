@@ -82,7 +82,14 @@ def _percentile(xs: Sequence[float], q: float) -> float:
 
 
 def latency_report(ms: Iterable[float]) -> dict[str, Any]:
-    pass
+    
+    n = len(ms)
+
+    if not ms:
+        raise AgreementError("ms is empty")
+
+    for x in ms:
+        pass
 
 
 def speedup(base_ms: float, other_ms: float) -> dict[str, Any]:
