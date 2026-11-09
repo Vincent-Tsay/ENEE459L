@@ -102,7 +102,7 @@ def latency_report(ms: Iterable[float]) -> dict[str, Any]:
             worst = x
 
     mean = total/n
-    p = () # p[0] = p50, p[1] = p95, p[2] = 99
+    p = [] # p[0] = p50, p[1] = p95, p[2] = 99
     
     for q in LATENCY_PERCENTILES:
         p.append(_percentile(ms, q))
@@ -224,7 +224,7 @@ def top1_agreement(rows_a: Sequence[Sequence[float]],
 
     N = len(rows_a)
     agree = 0
-    first_disagreement = -1
+    first_disagreement = None
     
     for k in range(0, len(rows_a)):
 
