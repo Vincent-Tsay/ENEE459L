@@ -88,21 +88,128 @@ def latency_report(ms: Iterable[float]) -> dict[str, Any]:
     if not ms:
         raise AgreementError("ms is empty")
 
+    total = 0
+    worst = 0
+
     for x in ms:
-        pass
+
+        if x < 0:
+            raise AgreementError("x_i is less than 0.")
+        
+        total = total + _finite(x, "x_i in ms")
+
+        if x > worst:
+            worst = x
+
+    mean = total/n
+    p = () # p[0] = p50, p[1] = p95, p[2] = 99
+    
+    for q in LATENCY_PERCENTILES:
+        p.append(_percentile(ms, q))
+    
+    jitter = p[1]-p[0]
+
+    return {
+        "n": n,
+        "mean": mean,
+        "worst": worst,
+        "p50": p[0],
+        "p95": p[1],
+        "p99": p[2],
+        "jitter": jitter
+    }
 
 
 def speedup(base_ms: float, other_ms: float) -> dict[str, Any]:
-    pass
+    
+    if _finite(base_ms, "base_ms in speedup()") <= 0:
+        raise AgreementError("base_ms is less than or equal to 0")
+    if _finite(other_ms, "other_ms in speedup()") <= 0:
+        raise AgreementError("other_ms is less than or equal to 0")
+
+    factor = base_ms/other_ms
+
+    # faster starts off as False, and only changes to True if factor > 1.0
+    faster = False
+
+    if factor > 1.0:
+        faster = True
+
+    saved_ms = base_ms - other_ms
+
+    return {
+        "factor": factor,
+        "faster": faster,
+        "saved_ms": saved_ms
+    }
+
 
 
 def max_abs_dev(a: Sequence[float], b: Sequence[float]) -> dict[str, Any]:
-    pass
+    
+    if not a:
+        raise AgreementError("a is empty")
+    elif not b:
+        raise AgreementError("b is empty")
+    elif len(a) != len(b):
+        raise AgreementError(f"a has length {len(a)} but b has length {len(b)}")
+
+    best_i = 0
+    best = abs(a[0]-b[0])
+
+    for i in range(0, len(a)):
+
+        a_i = _finite(a[i], "a_i in max_abs_dev()")
+        b_i = _finite(b[i], "b_i in max_abs_dev()")
+
+        if abs(a_i - b_i) > best:
+            best = abs(a_i - b_i)
+            best_i = i
+    
+    return {
+        "max_abs": best,
+        "index": best_i,
+        "a": a[best_i],
+        "b": b[best_i],
+        "n": len(a)
+    }
 
 
 def max_rel_dev(a: Sequence[float], b: Sequence[float],
                 floor: float = REL_FLOOR) -> dict[str, Any]:
-    pass
+    
+    if len(a) != len(b):
+        raise AgreementError(f"a has length {len(a)}, but b has length {len(b)}")
+    elif floor <= 0:
+        AgreementError("non-positive floor")
+
+    floored = 0
+    denom_min = float("inf") # so always will be set to min denominator
+    best = 0
+    best_i = 0
+
+    for i in range(0, len(a)):
+        
+        a_i = _finite(a[i], "a_i in max_rel_dev()")
+        b_i = _finite(b[i], "b_i in max_rel_dev()")
+        d_i = abs(b_i)
+        
+        denom_min = min(denom_min, d_i)
+        if d_i < floor:
+            floored = floored + 1
+        
+        r_i = abs(a_i-b_i)/max(d_i, floor)
+        if r_i > best:
+            best = r_i
+            best_i = i
+    
+    return {
+        "max_rel": best,
+        "index": best_i,
+        "floored": floored,
+        "denom_min": denom_min,
+        "n": len(a)
+    }
 
 
 def top1_agreement(rows_a: Sequence[Sequence[float]],
