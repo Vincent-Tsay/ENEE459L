@@ -214,12 +214,105 @@ def max_rel_dev(a: Sequence[float], b: Sequence[float],
 
 def top1_agreement(rows_a: Sequence[Sequence[float]],
                    rows_b: Sequence[Sequence[float]]) -> dict[str, Any]:
-    pass
+
+    if not rows_a:
+        raise AgreementError("rows_a empty")
+    elif not rows_b:
+        raise AgreementError("rows_b empty")
+    elif len(rows_a) != len(rows_b):
+        raise AgreementError(f"rows_a has length {len(rows_a)} but rows_b has length {len(rows_b)}")
+
+    N = len(rows_a)
+    agree = 0
+    first_disagreement = -1
+    
+    for k in range(0, len(rows_a)):
+
+        u_k = rows_a[k]
+        v_k = rows_b[k]
+        
+        if not u_k:
+            raise AgreementError(f"row {k} in rows_a is empty")
+        elif not v_k:
+            raise AgreementError(f"row {k} in rows_b is empty")
+        elif len(u_k) != len(v_k):
+            raise AgreementError(f"rows_a[{k}] has length {len(rows_a[k])} but rows_b[{k}] has length {len(rows_b[k])}")
+
+        # since these are for argmax, i_a and i_b are index values, not actual array values
+        i_a = 0
+        i_b = 0
+        
+        for c in range(0, len(u_k)):
+
+            # finding strict argmax and checking finiteness
+            if _finite(u_k[c], f"u_k[{c}] in top1_agreement()") > u_k[i_a]:
+                i_a = c
+            if _finite(v_k[c], f"v_k[{c}] in top1_agreement()") > v_k[i_b]:
+                i_b = c
+        
+        if i_a == i_b:
+            agree = agree + 1
+        elif i_a != i_b and first_disagreement == -1:
+            first_disagreement = k
+
+    rate = agree/N
+    disagree = N - agree
+
+    return {
+        "n": N,
+        "agree": agree,
+        "disagree": disagree,
+        "rate": rate,
+        "first_disagreement": first_disagreement
+    }
 
 
 def decision_margin(rows: Sequence[Sequence[float]],
                     tol: float) -> dict[str, Any]:
-    pass
+
+    if not rows:
+        raise AgreementError("rows is empty")
+    elif tol < 0:
+        raise AgreementError("tol is less than 0")
+
+    margins = []
+    below_tol = 0
+
+    for k in range(0, len(rows)):
+        r_k = rows[k]
+
+        if len(r_k) < 2:
+            raise AgreementError(f"rows[{k}] has no second best competitor, making decision margin undefined")
+
+        s = sorted(r_k, reverse = True)
+        m_k = s[0]-s[1]
+
+        if m_k >= 0:
+            margins.append(m_k)
+        else:
+            raise AgreementError(f"margin is negative in rows[{k}]")
+        
+        if m_k < tol:
+            below_tol = below_tol + 1
+
+    n = len(rows)
+
+    argmin = 0
+
+    for k in range(0, len(margins)):
+        
+        if margins[k] < margins[argmin]:
+            argmin = k
+    
+    return {
+        "n": n,
+        "min": min(margins),
+        "median": _percentile(margins, 50),
+        "mean": (1/n)*sum(margins),
+        "argmin": argmin,
+        "below_tol": below_tol,
+        "safe": (below_tol == 0)
+    }
 
 #############################################################
 ###############  Main function starts here ##################
