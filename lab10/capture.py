@@ -136,9 +136,9 @@ def wav_bytes(
     return {
         "samples": samples,
         "block_align": ba,
-        "byte_rate": sample_rate*ba
+        "byte_rate": sample_rate*ba,
         "data_bytes": data_bytes,
-        "header_bytes": header_bytes
+        "header_bytes": header_bytes,
         "total_bytes": data_bytes + header_bytes
     }
     
@@ -225,15 +225,66 @@ def bits_in_use(peak_dbfs: float | None, bit_depth: int) -> float:
 
 
 def level_sentence(level: dict[str, Any]) -> str:
-    pass
+    
+    if level["silent"]:
+        return f"the capture is digitally silent: all {level['samples']} samples are zero"
+    
+    p = level["peak_dbfs"]
+    parts = [f"peak {p:.2f} dBFS"]
+
+    if level.get("rms_dbfs"):
+        parts.append(f"RMS {level['rms_dbfs']:.2f} dBFS")
+    
+    if level.get("crest_db"):
+        parts.append(f"crest {level['crest_db']:.2f} dBFS")
+    
+    if level.get("clipped"):
+        parts.append(f"{level['clipped']} samples at the rail ({100*level['clip_rate']:.4f}%)")
+    
+    return ", ".join(parts)
 
 
 def record_gaps(record: dict[str, Any]) -> dict[str, Any]:
-    pass
+    
+    if not isinstance(record, dict):
+        raise CaptureError(f"the record is a {type(record).__name__}, not an object.")
+    
+    present = [], missing = [], blank = []
+
+    for key in THIRTEEN_CHOICES:
+
+        if key not in record:
+            missing.append(key)
+        elif not str(record[key]).strip():
+            blank.append(key)
+        else:
+            present.append(key)
+
+    return {
+        "present": present,
+        "missing": missing,
+        "blank": blank,
+        "complete": not missing and not blank,
+        "in_header": list(CHOICES_IN_HEADER),
+        "hand_written": [key for key in THIRTEEN_CHOICES if key not in CHOICES_IN_HEADER]
+    }
 
 
 def record_sentence(gaps: dict[str, Any]) -> str:
-    pass
+    
+    n = len(gaps["present"])
+    total = n + len(gaps["missing"]) + len(gaps["blank"])
+
+    if gaps["complete"]:
+        return f"all {total} choices are named, {len(gaps['in_header'])} of them also in the file header and {len(gaps['hand_written'])} of them nowhere else"
+    
+    parts = []
+    if gaps["missing"]:
+        parts.append(f"{len(gaps['missing'])} missing ({", ".join(gaps['missing'])})")
+    if gaps["blank"]:
+        parts.append(f"{len(gaps['blank'])} present and empty ({", ".join(gaps['blank'])})")
+    
+    return f"{n} of {total} choices are named; " + "; ".join(parts)
 
 
 # =====================================================================
