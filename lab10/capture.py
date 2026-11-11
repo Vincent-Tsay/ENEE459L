@@ -236,7 +236,7 @@ def level_sentence(level: dict[str, Any]) -> str:
         parts.append(f"RMS {level['rms_dbfs']:.2f} dBFS")
     
     if level.get("crest_db"):
-        parts.append(f"crest {level['crest_db']:.2f} dBFS")
+        parts.append(f"crest {level['crest_db']:.2f} dB")
     
     if level.get("clipped"):
         parts.append(f"{level['clipped']} samples at the rail ({100*level['clip_rate']:.4f}%)")
@@ -249,7 +249,9 @@ def record_gaps(record: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise CaptureError(f"the record is a {type(record).__name__}, not an object.")
     
-    present = [], missing = [], blank = []
+    present = []
+    missing = []
+    blank = []
 
     for key in THIRTEEN_CHOICES:
 
@@ -280,9 +282,9 @@ def record_sentence(gaps: dict[str, Any]) -> str:
     
     parts = []
     if gaps["missing"]:
-        parts.append(f"{len(gaps['missing'])} missing ({", ".join(gaps['missing'])})")
+        parts.append(f"{len(gaps['missing'])} missing ({', '.join(gaps['missing'])})")
     if gaps["blank"]:
-        parts.append(f"{len(gaps['blank'])} present and empty ({", ".join(gaps['blank'])})")
+        parts.append(f"{len(gaps['blank'])} present and empty ({', '.join(gaps['blank'])})")
     
     return f"{n} of {total} choices are named; " + "; ".join(parts)
 
