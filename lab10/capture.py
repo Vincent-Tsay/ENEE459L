@@ -117,7 +117,31 @@ def wav_bytes(
     seconds: float,
     header_bytes: int = WAV_HEADER_BYTES,
 ) -> dict[str, Any]:
-    pass
+    
+    ba = block_align(channels, bit_depth) # gets bytes per audio frame, frame size determined by bit_depth(?)
+    _positive_int(sample_rate, "sample_rate") # validates sample_rate
+    # validates seconds
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise CaptureError(f"seconds is {seconds!r}, which is not a duration.")
+    elif float(seconds) < 0.0:
+        raise CaptureError(f"seconds is {seconds}, which is not a duration.")
+
+    # validates header_bytes
+    if isinstance(header_bytes, bool) or not isinstance(header_bytes, int) or header_bytes < 0:
+        raise CaptureError(f"header_bytes is {header_bytes!r}.")
+
+    samples = int(round(float(seconds)*sample_rate))
+    data_bytes = samples*ba
+
+    return {
+        "samples": samples,
+        "block_align": ba,
+        "byte_rate": sample_rate*ba
+        "data_bytes": data_bytes,
+        "header_bytes": header_bytes
+        "total_bytes": data_bytes + header_bytes
+    }
+    
 
 
 def duration_from_bytes(
