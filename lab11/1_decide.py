@@ -269,7 +269,7 @@ def confusion(values, labels, threshold: float) -> dict:
     for i, y in enumerate(labels):
         if isinstance(y, bool) or y not in (0,1):
             raise DecideError(f"labels[{i}] is {y!r}; must be integer 0 or 1.")
-            lbls.append(int(y))
+        lbls.append(int(y))
     
     if len(scores) != len(lbls):
         raise DecideError(f"values has {len(scores)} items and labels has {len(lbls)}.")
@@ -313,7 +313,7 @@ def rates(cm: dict) -> dict:
 
     recall = tpr
 
-    if presision is not None and recall is not None and (precision + recall) > 0:
+    if precision is not None and recall is not None and (precision + recall) > 0:
         f1 = 2.0 * precision * recall / (precision + recall)
     elif precision == 0.0 and recall == 0.0:
         f1 = 0.0
